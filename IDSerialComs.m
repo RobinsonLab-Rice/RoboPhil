@@ -8,7 +8,7 @@ devices = [];
 
 Skey = 'HKEY_LOCAL_MACHINE\HARDWARE\DEVICEMAP\SERIALCOMM';
 [~, list] = dos(['REG QUERY ' Skey]);
-if ischar(list) && strcmp('ERROR',list(1:5))
+if ischar(list) && (numel(list) <= 5 || strcmp('ERROR',list(1:5)))
     disp('Error: IDSerialComs - No SERIALCOMM registry entry')
     return;
 end

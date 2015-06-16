@@ -14,7 +14,7 @@ classdef ARD < handle
     end
     
     methods
-        function obj = ARD(ArduinoCOM)
+        function obj = ARD(ArduinoCOM,varargin)
             existing = Objects.find('ARD',ArduinoCOM);
             if isempty(existing)
                 com = ['COM' num2str(ArduinoCOM)];
@@ -32,6 +32,9 @@ classdef ARD < handle
                 end
                 if flag == 0
                     obj.ArduinoSerial = serial(com);
+                    if numel(varargin) == 1
+                        obj.ArduinoSerial.BaudRate = varargin{1};
+                    end
                 else
                     obj.ArduinoSerial = temp(flag);
                 end

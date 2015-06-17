@@ -1,5 +1,5 @@
 function finished = rfDisp (waitT,varargin)
-persistent a up down
+persistent a up down current
 switch numel(varargin)
     case 0
         % Do Nothing, pass through switch case
@@ -48,7 +48,10 @@ if isempty(up) || isempty(down)
     up = 1500;
     down = 1150;
 end
-for ii = flip(down:25:up)
+if isempty(current)
+    current = 1500;
+end
+for ii = flip(down:25:current)
     a.fhNoz(ii)
     pause(.05)
 end
@@ -57,4 +60,5 @@ end
 % a.fhNoz(down);
 pause(waitT);
 a.fhNoz(up);
+current = up;
 finished = 1;

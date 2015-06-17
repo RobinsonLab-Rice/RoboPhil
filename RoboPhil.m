@@ -22,7 +22,7 @@ function varargout = RoboPhil(varargin)
 
 % Edit the above text to modify the response to help RoboPhil
 
-% Last Modified by GUIDE v2.5 16-Jun-2015 17:24:26
+% Last Modified by GUIDE v2.5 17-Jun-2015 15:36:53
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -50,59 +50,78 @@ function RoboPhil_OpeningFcn(hObject, eventdata, handles, varargin)
 handles.output = hObject;
 
 if strcmp(get(hObject,'Visible'),'off')
-warning off MATLAB:HandleGraphics:ObsoletedProperty:JavaFrame
-
-setappdata(hObject,'wait',1);
-
-set(hObject,'WindowKeyPressFcn',{@KeyManagerKPF,handles});
-
-available = IDSerialComs;
-a = [];
-for ii = 1:size(available,1)
-    if strcmp('Arduino',available{ii,1}(1:7))
-        a = ARD(available{ii,2},115200);
-        a.output(handles.ArduinoText);
-        break;
-    end
-end
-if ~isempty(a)
-    setappdata(hObject,'Arduino',a);
-    set(handles.FindArdMI,'Enable','off');
-    set(handles.DisconnectArdMI,'Enable','on');
-    set(handles.CalibrateArdMI,'Enable','on');
+    warning off MATLAB:HandleGraphics:ObsoletedProperty:JavaFrame
     
-    a.fhHome
-    pause(1)
+    setappdata(hObject,'wait',1);
     
-    rfMove('setup',a,[400,150],180,180);
-    rfMove('w',1,1);
-    tic;
-    while ~strcmp('Finished',get(handles.ArduinoText,'String'))
-        pause(.1)
-        if toc > 10
+    available = IDSerialComs;
+    a = [];
+    for ii = 1:size(available,1)
+        if strcmp('Arduino',available{ii,1}(1:7))
+            a = ARD(available{ii,2},115200);
+            a.output(handles.ArduinoText);
             break;
         end
     end
-    if strcmp('Finished',get(handles.ArduinoText,'String'))
-        set(handles.XPosition,'String','400');
-        set(handles.YPosition,'String','150');
-        set(handles.XWell,'String','1');
-        set(handles.YWell,'String','1');
-        setappdata(hObject,'wait',0);
+    if ~isempty(a)
+        setappdata(hObject,'Arduino',a);
+        set(handles.FindArdMI,'Enable','off');
+        set(handles.DisconnectArdMI,'Enable','on');
+        set(handles.CalibrateArdMI,'Enable','on');
+        setappdata(handles.RoboPhil,'UserSteps',360);
+        
+        resp = rfDisp([],a,1350,1155);
+        if isa(resp,'double') && resp == -1
+            disp('rfDisp not configured')
+            setappdata(hObject,'DispMinWait',[])
+            setappdata(hObject,'DispUpPos',[])
+            setappdata(hObject,'DispDownPos',[])
+        else
+            setappdata(hObject,'DispMinWait',1)
+            setappdata(hObject,'DispUpPos',1350)
+            setappdata(hObject,'DispDownPos',1155)
+        end
+        
+        set(hObject,'WindowKeyPressFcn',{@KeyManagerKPF,handles});
+        
+        tic;
+        a.fhHome
+        
+        KeyManagerKPF(hObject,[],handles);
+        
+        while ~strcmp('Finished',get(handles.ArduinoText,'String'))
+            pause(.1)
+            if toc > 10
+                break;
+            end
+        end
+        
+        plate.cStep = 180;
+        plate.rStep = 180;
+        plate.LRWell = [335,88];
+        plate.numWells = [24,16];
+        plate.wellShape = 's';
+        setappdata(handles.RoboPhil,'plate',plate);
+        
+        if strcmp('Finished',get(handles.ArduinoText,'String'))
+            set(handles.XPosition,'String',num2str(plate.LRWell(1)));
+            set(handles.YPosition,'String',num2str(plate.LRWell(2)));
+            set(handles.XWell,'String','1');
+            set(handles.YWell,'String','1');
+            setappdata(hObject,'wait',0);
+        else
+            disp('Calibration Failed')
+        end
+        
+        rfMove('setup',a,plate.LRWell,plate.rStep,plate.cStep);
+        rfMove('w',1,1);
+        
+        guidata(hObject, handles);
+        
+        checkPosition(handles)
     else
-        disp('Calibration Failed')
+       guidata(hObject, handles); 
     end
-    
-    resp = rfDisp([],a,1155,1155);
-    if isa(resp,'double') && resp == -1
-        disp('rfDisp not configured')
-    end
-else
-    
-end
-
-% Update handles structure
-guidata(hObject, handles);
 end
 
 
@@ -225,6 +244,8 @@ switch sel
         steps = 10 * dir;
     case 'Steps1RB'
         steps = 1 * dir;
+    case 'StepsUserRB'
+        steps = getappdata(handles.RoboPhil,'UserSteps') * dir;
 end
 set(handles.XPosition,'String',num2str(pos + steps));
 set(handles.ArduinoText,'String','');
@@ -264,6 +285,8 @@ switch sel
         steps = 10 * dir;
     case 'Steps1RB'
         steps = 1 * dir;
+    case 'StepsUserRB'
+        steps = getappdata(handles.RoboPhil,'UserSteps') * dir;
 end
 set(handles.YPosition,'String',num2str(pos + steps));
 set(handles.ArduinoText,'String','');
@@ -277,6 +300,7 @@ if isempty(a)
     return;
 end
 tic
+plate = getappdata(handles.RoboPhil,'plate');
 while ~strcmp('Done',get(handles.ArduinoText,'String'))
     resp = get(handles.ArduinoText,'String');
     if numel(resp) > 3 && strcmp('Arm',resp(1:3))
@@ -300,14 +324,14 @@ y = resp(comma+1:end);
 set(handles.XPosition,'String',x);
 set(handles.YPosition,'String',y);
 xpos = str2double(x);
-xwell = (xpos - 400) / 180 + 1;
+xwell = (xpos - plate.LRWell(1)) / plate.rStep + 1;
 if xwell == round(xwell)
     xwellStr = num2str(xwell);
 else
     xwellStr = ['~ ',num2str(round(xwell))];
 end
 ypos = str2double(y);
-ywell = (ypos - 150) / 180 + 1;
+ywell = (ypos - plate.LRWell(2)) / plate.cStep + 1;
 if ywell == round(ywell)
     ywellStr = num2str(ywell);
 else
@@ -381,14 +405,52 @@ function PlateMain_Callback(hObject, eventdata, handles)
 
 % --------------------------------------------------------------------
 function SetLRWPosMI_Callback(hObject, eventdata, handles)
+plate = getappdata(handles.RoboPhil,'plate');
+resp = inputdlg('Enter Position of Well 1,1 in X,Y notation:', ...
+    'RoboPhil: Plate',[1,50]);
+resp = resp{1};
+comma = find(resp == ',');
+if isempty(comma)
+    warndlg('Invalid Well Entry','RoboPhil: Plate');
+    return;
+end
+xWell = str2double(resp(1:comma-1));
+yWell = str2double(resp(comma+1:end));
+if isnan(xWell) || isnan(yWell) || xWell < 0 || yWell < 0
+    warndlg('Invalid Well Entry','RoboPhil: Plate');
+    return;
+end
+plate.LRWell = [xWell,yWell];
+setappdata(handles.RoboPhil,'plate',plate);
+rfMove('setup',plate.LRWell);
 
 
 % --------------------------------------------------------------------
 function RowStepsMI_Callback(hObject, eventdata, handles)
+plate = getappdata(handles.RoboPhil,'plate');
+resp = str2double(inputdlg('Enter the Number of Steps between Wells in X:', ...
+    'RoboPhil: Plate',[1,50]));
+if isnan(resp) || resp < 0
+    warndlg('Invalid Well Entry','RoboPhil: Plate');
+    return;
+end
+plate.rStep = resp;
+setappdata(handles.RoboPhil,'plate',plate);
+rfMove('setup',plate.rStep,plate.cStep);
 
 
 % --------------------------------------------------------------------
 function ColStepsMI_Callback(hObject, eventdata, handles)
+plate = getappdata(handles.RoboPhil,'plate');
+resp = str2double(inputdlg('Enter the Number of Steps between Wells in Y:', ...
+    'RoboPhil: Plate',[1,50]));
+if isnan(resp) || resp < 0
+    warndlg('Invalid Well Entry','RoboPhil: Plate');
+    return;
+end
+plate.cStep = resp;
+setappdata(handles.RoboPhil,'plate',plate);
+rfMove('setup',plate.rStep,plate.cStep);
 
 
 % --- Executes when user attempts to close RoboPhil.
@@ -415,7 +477,6 @@ setappdata(handles.RoboPhil,'wait',1);
 set(handles.ArduinoText,'String','');
 rfMove('s',xwell,ywell);
 checkPosition(handles);
-
 
 
 
@@ -458,10 +519,20 @@ checkPosition(handles);
 
 % --- Executes on button press in DispenseButton.
 function DispenseButton_Callback(hObject, eventdata, handles)
+setappdata(handles.RoboPhil,'wait',1);
+code = rfDisp(getappdata(handles.RoboPhil,'DispMinWait'));
+if code == 1
+    setappdata(handles.RoboPhil,'wait',0);
+end
 
 
 % --- Executes when selected object is changed in PrecisionSelect.
 function PrecisionSelect_SelectionChangeFcn(hObject, eventdata, handles)
+if hObject == handles.StepsUserRB
+    set(handles.UserStepsEdit,'Enable','on');
+else
+    set(handles.UserStepsEdit,'Enable','off');
+end
 
 
 % --- Executes on button press in PrecisionToggle.
@@ -474,4 +545,109 @@ else
     set(hObject,'Background',[.941,.941,.941])
     a = getappdata(handles.RoboPhil,'Arduino');
     a.send('precisionOff()');
+end
+
+
+% --------------------------------------------------------------------
+function TipControlMain_Callback(hObject, eventdata, handles)
+
+
+% --------------------------------------------------------------------
+function DispenseMinWaitMI_Callback(hObject, eventdata, handles)
+resp = str2double(inputdlg('Enter Minimum Wait Time in Seconds:', ...
+    'RoboPhil: Tip Control',[1,50]));
+if isnan(resp) || resp < 0 || resp > 60
+    warndlg('Invalid Wait Time Entry','RoboPhil: Tip Control');
+    return;
+end
+setappdata(handles.RoboPhil,'DispMinWait',resp);
+% %wait = getappdata(hObject,'DispMinWait');
+% wait = resp;
+% up = getappdata(handles.RoboPhil,'DispUpPos');
+% down = getappdata(handles.RoboPhil'DispDownPos');
+% rfDisp(wait,up,down);
+return;
+
+
+% --------------------------------------------------------------------
+function UpPositionMI_Callback(hObject, eventdata, handles)
+resp = str2double(inputdlg('Enter "Up" Position in uSecond Notation:', ...
+    'RoboPhil: Tip Control',[1,50]));
+if isnan(resp) || resp < 1000 || resp > 2000
+    warndlg('Invalid Up Position Entry','RoboPhil: Tip Control');
+    return;
+end
+setappdata(handles.RoboPhil,'DispUpPos',resp);
+wait = getappdata(handles.RoboPhil,'DispMinWait');
+% up = getappdata(hObject,'DispUpPos');
+up = resp;
+down = getappdata(handles.RoboPhil,'DispDownPos');
+rfDisp(wait,up,down);
+
+
+% --------------------------------------------------------------------
+function DownPositionMI_Callback(hObject, eventdata, handles)
+resp = str2double(inputdlg('Enter "Down" Position in uSecond Notation:', ...
+    'RoboPhil: Tip Control',[1,50]));
+if isnan(resp) || resp < 1000 || resp > 2000
+    warndlg('Invalid Down Position Entry','RoboPhil: Tip Control');
+    return;
+end
+setappdata(handles.RoboPhil,'DispDownPos',resp);
+wait = getappdata(handles.RoboPhil,'DispMinWait');
+up = getappdata(handles.RoboPhil,'DispUpPos');
+% down = getappdata(hObject,'DispDownPos');
+down = resp;
+rfDisp(wait,up,down);
+
+
+% --------------------------------------------------------------------
+function NumberOfWellsMI_Callback(hObject, eventdata, handles)
+plate = getappdata(handles.RoboPhil,'plate');
+resp = inputdlg('Enter Number of Wells in X,Y notation:', ...
+    'RoboPhil: Plate',[1,50]);
+resp = resp{1};
+comma = find(resp == ',');
+if isempty(comma)
+    warndlg('Invalid Well Entry','RoboPhil: Plate');
+    return;
+end
+xWell = str2double(resp(1:comma-1));
+yWell = str2double(resp(comma+1:end));
+if isnan(xWell) || isnan(yWell) || xWell < 0 || yWell < 0
+    warndlg('Invalid Well Entry','RoboPhil: Plate');
+    return;
+end
+plate.numWells = [xWell,yWell]
+setappdata(handles.RoboPhil,'plate',plate);
+
+
+% --------------------------------------------------------------------
+function WellShapeMI_Callback(hObject, eventdata, handles)
+plate = getappdata(handles.RoboPhil,'plate');
+resp = questdlg('Select Well Shape','RoboPhil: Plate','Square','Circle','Cancel', ...
+    'Square');
+switch resp
+    case 'Square'
+        plate.wellShape = 's';
+    case 'Circle'
+        plate.wellShape = 'c';
+    case 'Cancel'
+        return;
+end
+setappdata(handles.RoboPhil,'plate',plate);
+
+
+% --------------------------------------------------------------------
+function PlateInterfaceMI_Callback(hObject, eventdata, handles)
+plate = get(handles.RoboPhil,'plate');
+
+
+function UserStepsEdit_Callback(hObject, eventdata, handles)
+steps = str2double(get(hObject,'String'));
+if isnan(steps) || steps < 0 || steps > 3500
+    steps = num2str(getappdata(handles.RoboPhil,'UserSteps'));
+    set(hObject,'String',steps);
+else
+    setappdata(handles.RoboPhil,'UserSteps',steps);
 end

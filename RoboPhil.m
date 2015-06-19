@@ -22,7 +22,7 @@ function varargout = RoboPhil(varargin)
 
 % Edit the above text to modify the response to help RoboPhil
 
-% Last Modified by GUIDE v2.5 17-Jun-2015 15:36:53
+% Last Modified by GUIDE v2.5 18-Jun-2015 15:34:31
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -96,8 +96,11 @@ if strcmp(get(hObject,'Visible'),'off')
             end
         end
         
-        plate.cStep = 180;
-        plate.rStep = 180;
+        set(handles.PrecisionToggle,'Background','r','Value',1)
+        a.send('precisionOn()');
+        
+        plate.cStep = 181;
+        plate.rStep = 181;
         plate.LRWell = [335,88];
         plate.numWells = [24,16];
         plate.wellShape = 's';
@@ -120,6 +123,7 @@ if strcmp(get(hObject,'Visible'),'off')
         
         checkPosition(handles)
     else
+        setappdata(hObject,'wait',0);
        guidata(hObject, handles); 
     end
 end
@@ -142,9 +146,9 @@ t(4) = YPos.isFocusOwner();
 if any(t)
     return;
 end
-jFig = get(h.RoboPhil,'JavaFrame');
-jWin = jFig.fHG1Client.getWindow();
-if ~ishandle(obj) || get(jWin,'Focused') == 0
+% jFig = get(h.RoboPhil,'JavaFrame');
+%jWin = jFig.fHG1Client.getWindow();
+if ~ishandle(obj) %|| get(jWin,'Focused') == 0
     return;
 end
 if getappdata(h.RoboPhil,'wait') == 1
@@ -176,10 +180,22 @@ switch event.Key
         else
             return;
         end
+    case 'slash'
+        DispenseButton_Callback(h.DispenseButton,[],h);
+    case 'rightbracket'
+        precisionSelect(1,h)
+    case 'leftbracket'
+        precisionSelect(-1,h)
     otherwise
 %         disp(get(h.MoveWellButton,'Selected'))
 %         disp(event.Key)
-        return;
+        entry = strcmpi(cellstr(get(h.UserList,'String')),event.Key);
+        if any(entry)
+            set(h.UserList,'Value',find(entry,1,'first'));
+            UserList_Callback(h.UserList,'open',h);
+        else
+            return;
+        end
 end
 
 
@@ -232,12 +248,14 @@ end
 StepX(dir,handles)
 
 
+
 function StepX (dir,handles)
 pos = str2double(get(handles.XPosition,'String'));
 sel = get(get(handles.PrecisionSelect,'SelectedObject'),'Tag');
 switch sel
     case 'WellRB'
-        steps = 180 * dir;
+        plate = getappdata(handles.RoboPhil,'plate');
+        steps = plate.rStep * dir;
     case 'Steps100RB'
         steps = 100 * dir;
     case 'Steps10RB'
@@ -263,6 +281,7 @@ else
 end
 StepY(dir,handles)
 
+
 % --- Executes on button press in Y1Button.
 function Y1Button_Callback(hObject, eventdata, handles)
 if get(handles.InvertYCB,'Value') == 0
@@ -273,12 +292,14 @@ end
 StepY(dir,handles)
 
 
+
 function StepY (dir,handles)
 pos = str2double(get(handles.YPosition,'String'));
 sel = get(get(handles.PrecisionSelect,'SelectedObject'),'Tag');
 switch sel
     case 'WellRB'
-        steps = 180 * dir;
+        plate = getappdata(handles.RoboPhil,'plate');
+        steps = plate.cStep * dir;
     case 'Steps100RB'
         steps = 100 * dir;
     case 'Steps10RB'
@@ -292,6 +313,7 @@ set(handles.YPosition,'String',num2str(pos + steps));
 set(handles.ArduinoText,'String','');
 rfMove('i',0,steps);
 checkPosition(handles)
+
 
 
 function checkPosition (handles)
@@ -455,11 +477,15 @@ rfMove('setup',plate.rStep,plate.cStep);
 
 % --- Executes when user attempts to close RoboPhil.
 function RoboPhil_CloseRequestFcn(hObject, eventdata, handles)
-clear rfDisp rfWell RoboPhil
 a = getappdata(handles.output,'Arduino');
 if isa(a,'ARD')
     a.delete;
 end
+while getappdata(handles.RoboPhil,'wait') == 1
+    pause(0.1);
+end
+clear rfDisp rfWell RoboPhil
+close(findall(0,'Tag','RoboPhilPlate'));
 delete(hObject);
 
 
@@ -535,6 +561,47 @@ else
 end
 
 
+
+function precisionSelect (direction,handles)
+sel = get(get(handles.PrecisionSelect,'SelectedObject'),'Tag');
+switch sel
+    case 'WellRB'
+        if direction == 1
+            next = handles.Steps100RB;
+        else
+            next = handles.StepsUserRB;
+            set(handles.UserStepsEdit,'Enable','on');
+        end
+    case 'Steps100RB'
+        if direction == 1
+            next = handles.Steps10RB;
+        else
+            next = handles.WellRB;
+        end
+    case 'Steps10RB'
+        if direction == 1
+            next = handles.Steps1RB;
+        else
+            next = handles.Steps100RB;
+        end
+    case 'Steps1RB'
+        if direction == 1
+            next = handles.StepsUserRB;
+            set(handles.UserStepsEdit,'Enable','on');
+        else
+            next = handles.Steps10RB;
+        end
+    case 'StepsUserRB'
+        set(handles.UserStepsEdit,'Enable','off');
+        if direction == 1
+            next = handles.WellRB;
+        else
+            next = handles.Steps1RB;
+        end
+end
+set(next,'Value',1);
+
+
 % --- Executes on button press in PrecisionToggle.
 function PrecisionToggle_Callback(hObject, eventdata, handles)
 if get(hObject,'Value') == 1
@@ -556,7 +623,7 @@ function TipControlMain_Callback(hObject, eventdata, handles)
 function DispenseMinWaitMI_Callback(hObject, eventdata, handles)
 resp = str2double(inputdlg('Enter Minimum Wait Time in Seconds:', ...
     'RoboPhil: Tip Control',[1,50]));
-if isnan(resp) || resp < 0 || resp > 60
+if isempty(resp) || isnan(resp) || resp < 0 || resp > 60
     warndlg('Invalid Wait Time Entry','RoboPhil: Tip Control');
     return;
 end
@@ -573,7 +640,7 @@ return;
 function UpPositionMI_Callback(hObject, eventdata, handles)
 resp = str2double(inputdlg('Enter "Up" Position in uSecond Notation:', ...
     'RoboPhil: Tip Control',[1,50]));
-if isnan(resp) || resp < 1000 || resp > 2000
+if isempty(resp) || isnan(resp) || resp < 1000 || resp > 2000
     warndlg('Invalid Up Position Entry','RoboPhil: Tip Control');
     return;
 end
@@ -589,7 +656,7 @@ rfDisp(wait,up,down);
 function DownPositionMI_Callback(hObject, eventdata, handles)
 resp = str2double(inputdlg('Enter "Down" Position in uSecond Notation:', ...
     'RoboPhil: Tip Control',[1,50]));
-if isnan(resp) || resp < 1000 || resp > 2000
+if isempty(resp) || isnan(resp) || resp < 1000 || resp > 2000
     warndlg('Invalid Down Position Entry','RoboPhil: Tip Control');
     return;
 end
@@ -618,12 +685,23 @@ if isnan(xWell) || isnan(yWell) || xWell < 0 || yWell < 0
     warndlg('Invalid Well Entry','RoboPhil: Plate');
     return;
 end
-plate.numWells = [xWell,yWell]
+plate.numWells = [xWell,yWell];
 setappdata(handles.RoboPhil,'plate',plate);
+plateFig = findall(0,'Tag','RoboPhilPlate');
+if ~isempty(plateFig)
+    pos = get(plateFig,'Position');
+    close(plateFig);
+    PlateInterfaceMI_Callback([],[],handles);
+    plateFig = findall(0,'Tag','RoboPhilPlate');
+    pos2 = get(plateFig,'Position');
+    pos2(1) = pos(1);
+    pos2(2) = pos(2) + pos(4) - pos2(4);
+    set(plateFig,'Position',pos2);
+end
 
 
 % --------------------------------------------------------------------
-function WellShapeMI_Callback(hObject, eventdata, handles)
+function WellShapeMI_Callback(hObject, ~, handles)
 plate = getappdata(handles.RoboPhil,'plate');
 resp = questdlg('Select Well Shape','RoboPhil: Plate','Square','Circle','Cancel', ...
     'Square');
@@ -636,11 +714,103 @@ switch resp
         return;
 end
 setappdata(handles.RoboPhil,'plate',plate);
+plateFig = findall(0,'Tag','RoboPhilPlate');
+if ~isempty(plateFig)
+    pos = get(plateFig,'Position');
+    close(plateFig);
+    PlateInterfaceMI_Callback([],[],handles);
+    plateFig = findall(0,'Tag','RoboPhilPlate');
+    pos2 = get(plateFig,'Position');
+    pos2(1) = pos(1);
+    pos2(2) = pos(2) + pos(4) - pos2(4);
+    set(plateFig,'Position',pos2);
+end
 
 
 % --------------------------------------------------------------------
 function PlateInterfaceMI_Callback(hObject, eventdata, handles)
-plate = get(handles.RoboPhil,'plate');
+plate = getappdata(handles.RoboPhil,'plate');
+f = figure('IntegerHandle','off','NumberTitle','off','Visible','off', ...
+    'MenuBar','none','Name','RoboPhil: Plate','Units','Pixels', ...
+    'WindowKeyPressFcn',{@KeyManagerKPF,handles},'Tag','RoboPhilPlate');
+pos = get(f,'Position');
+numX = plate.numWells(1);
+minX = 5 * numX;
+if pos(3) < minX
+    pos(3) = minX;
+end
+numY = plate.numWells(2);
+minY = 5 * numY;
+if pos(4) < minY
+    pos(2) = pos(2) - (minY - pos(4));
+    pos(4) = minY;
+end
+set(f,'Position',pos,'Units','normalized');
+a = axes('Parent',f,'Units','normalized','Position',[0,0,1,1],'XTick',[],'YTick',[]);
+switch plate.wellShape
+    case 's'
+        curve = [0,0];
+    case 'c'
+        curve = [1,1];
+end
+for ii = 1:numX
+    for jj = 1:numY
+        rectangle('Parent',a,'Position',[(numX-ii)/numX,(jj-1)/numY,1/numX,1/numY],...
+            'UserData',[ii,jj,numX,numY],'FaceColor','g','ButtonDownFcn',@WellBDF, ...
+            'Curvature',curve);
+    end
+end
+set(f,'Visible','on')
+
+
+
+function WellBDF (obj,~)
+persistent RoboPhil XWell YWell h moveFcn
+if isempty(RoboPhil) || ~ishandle(RoboPhil)
+    RoboPhil = findall(0,'Tag','RoboPhil');
+    XWell = [];
+    YWell = [];
+    moveFcn = [];
+    h = [];
+    if isempty(RoboPhil)
+        return;
+    end
+end
+if isempty(XWell)
+    h = guidata(RoboPhil);
+    XWell = h.XWell;
+    YWell = h.YWell;
+    moveButton = h.MoveWellButton;
+    moveFcn = get(moveButton,'Callback');
+end
+if getappdata(RoboPhil,'wait') == 1
+    return;
+end
+color = get(obj,'FaceColor');
+if color(2) == 1
+    set(obj,'FaceColor',[0.5,0,0]);
+    ID = get(obj,'UserData');
+    if get(h.InvertXCB,'Value') == 1
+        xStr = num2str(ID(3) + 1 - ID(1));
+    else
+        xStr = num2str(ID(1));
+    end
+    if get(h.InvertYCB,'Value') == 1
+        yStr = num2str(ID(4) + 1 - ID(2));
+    else
+        yStr = num2str(ID(2));
+    end
+    set(XWell,'String',xStr);
+    set(YWell,'String',yStr);
+    moveFcn(h.MoveWellButton,[]);
+    while getappdata(RoboPhil,'wait') == 1
+        pause(0.1)
+    end
+    set(obj,'FaceColor',[1,0,1]);
+else
+    set(obj,'FaceColor','g');
+end
+
 
 
 function UserStepsEdit_Callback(hObject, eventdata, handles)
@@ -651,3 +821,118 @@ if isnan(steps) || steps < 0 || steps > 3500
 else
     setappdata(handles.RoboPhil,'UserSteps',steps);
 end
+
+
+% --- Executes on selection change in UserList.
+function UserList_Callback(hObject, eventdata, handles)
+if isempty(eventdata)
+    selType = get(handles.RoboPhil,'SelectionType');
+else
+    selType = eventdata;
+end
+UD = get(hObject,'UserData');
+sel = get(hObject,'Value');
+list = cellstr(get(hObject,'String'));
+switch selType
+    case 'open'
+        set(handles.XPosition,'String',num2str(UD{sel,2}(1)));
+        set(handles.YPosition,'String',num2str(UD{sel,2}(2)));
+        MoveToButton_Callback(handles.MoveToButton,[],handles);
+    case 'normal'
+        return;
+    case 'alt'
+        resp = questdlg(['Delete User Position "',UD{sel,1},'"?'], ...
+            'RoboFlow: User Position');
+        if strcmp(resp,'Yes')
+            list(sel) = [];
+            UD(sel,:) = [];
+            if isempty(list)
+                list = {''};
+            end
+            if sel > numel(list)
+                sel = numel(list);
+            end
+            set(handles.UserList,'String',list,'Value',sel,'UserData',UD);
+        end
+    otherwise
+        return;
+end
+
+% --- If Enable == 'on', executes on mouse press in 5 pixel border.
+% --- Otherwise, executes on mouse press in 5 pixel border or over UserList.
+function UserList_ButtonDownFcn(hObject, eventdata, handles)
+if isempty(eventdata)
+    selType = get(handles.RoboPhil,'SelectionType');
+else
+    selType = eventdata;
+end
+UD = get(hObject,'UserData');
+sel = get(hObject,'Value');
+list = cellstr(get(hObject,'String'));
+switch selType
+    case 'open'
+        set(handles.XPosition,'String',num2str(UD{sel,2}(1)));
+        set(handles.YPosition,'String',num2str(UD{sel,2}(2)));
+        MoveToButton_Callback(handles.MoveToButton,[],handles);
+    case 'normal'
+        return;
+    case 'alt'
+        resp = questdlg(['Delete User Position "',UD{sel,1},'"?'], ...
+            'RoboFlow: User Position');
+        if strcmp(resp,'Yes')
+            list(sel) = [];
+            UD(sel,:) = [];
+            if isempty(list)
+                list = {''};
+            end
+            if sel > numel(list)
+                sel = numel(list);
+            end
+            set(handles.UserList,'String',list,'Value',sel,'UserData',UD);
+        end
+    otherwise
+        return;
+end
+
+
+% --- Executes during object creation, after setting all properties.
+function UserList_CreateFcn(hObject, eventdata, handles)
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+% --- Executes on button press in AddPositionButton.
+function AddPositionButton_Callback(hObject, eventdata, handles)
+temp = str2double(get(handles.XPosition,'String'));
+if isempty(temp) || isnan(temp)
+    return;
+end
+pos(1) = temp;
+temp = str2double(get(handles.YPosition,'String'));
+if isempty(temp) || isnan(temp)
+    return;
+end
+pos(2) = temp;
+resp = inputdlg('Please enter a Letter for this position', ...
+    'RoboPhil: User Position',[1,50]);
+if isempty(resp) || isempty(resp{1}) || numel(resp{1}) ~= 1
+    warndlg('Not a valid entry','RoboPhil: User Position');
+    return;
+end
+list = cellstr(get(handles.UserList,'String'));
+UD = get(handles.UserList,'UserData');
+if isempty(list) || isempty(list{1})
+    list = resp;
+    UD = {resp{1},pos};
+else
+    list{end+1} = resp{1};
+    UD = [UD;{resp{1},pos}];
+end
+set(handles.UserList,'String',list,'UserData',UD);
+
+
+
+
+
+

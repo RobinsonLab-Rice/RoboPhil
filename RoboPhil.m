@@ -70,16 +70,24 @@ if strcmp(get(hObject,'Visible'),'off')
         set(handles.CalibrateArdMI,'Enable','on');
         setappdata(handles.RoboPhil,'UserSteps',360);
         
-        resp = rfDisp([],a,1350,1155);
+        if isempty(varargin)
+            plate.cStep = 181;
+            plate.rStep = 181;
+            plate.LRWell = [335,88];
+            plate.numWells = [24,16];
+            plate.wellShape = 's';
+            plate.up = 1350;
+            plate.down = 1165;
+        else
+            plate = varargin{1};
+        end
+        
+        resp = rfDisp([],a,plate.up,plate.down);
         if isa(resp,'double') && resp == -1
             disp('rfDisp not configured')
             setappdata(hObject,'DispMinWait',[])
-            setappdata(hObject,'DispUpPos',[])
-            setappdata(hObject,'DispDownPos',[])
         else
             setappdata(hObject,'DispMinWait',1)
-            setappdata(hObject,'DispUpPos',1350)
-            setappdata(hObject,'DispDownPos',1155)
         end
         
         set(hObject,'WindowKeyPressFcn',{@KeyManagerKPF,handles});
@@ -99,11 +107,6 @@ if strcmp(get(hObject,'Visible'),'off')
         set(handles.PrecisionToggle,'Background','r','Value',1)
         a.send('precisionOn()');
         
-        plate.cStep = 181;
-        plate.rStep = 181;
-        plate.LRWell = [335,88];
-        plate.numWells = [24,16];
-        plate.wellShape = 's';
         setappdata(handles.RoboPhil,'plate',plate);
         
         if strcmp('Finished',get(handles.ArduinoText,'String'))
@@ -186,6 +189,13 @@ switch event.Key
         precisionSelect(1,h)
     case 'leftbracket'
         precisionSelect(-1,h)
+    case 'comma'
+        rfDisp('s',-5);
+        pause(0.1)
+        disp(rfDisp('c'));
+    case 'period'
+        rfDisp('s',5);
+        pause(0.1)
     otherwise
 %         disp(get(h.MoveWellButton,'Selected'))
 %         disp(event.Key)
@@ -638,34 +648,30 @@ return;
 
 % --------------------------------------------------------------------
 function UpPositionMI_Callback(hObject, eventdata, handles)
-resp = str2double(inputdlg('Enter "Up" Position in uSecond Notation:', ...
-    'RoboPhil: Tip Control',[1,50]));
-if isempty(resp) || isnan(resp) || resp < 1000 || resp > 2000
+resp = str2double(inputdlg('Enter "Up" Position in Percent (max UP = 100.0):', ...
+    'RoboPhil: Tip Control',[1,70]));
+if isempty(resp) || isnan(resp) || resp < 0 || resp > 100
     warndlg('Invalid Up Position Entry','RoboPhil: Tip Control');
     return;
 end
-setappdata(handles.RoboPhil,'DispUpPos',resp);
-wait = getappdata(handles.RoboPhil,'DispMinWait');
-% up = getappdata(hObject,'DispUpPos');
-up = resp;
-down = getappdata(handles.RoboPhil,'DispDownPos');
-rfDisp(wait,up,down);
+plate = getappdata(handles.RoboPhil,'plate');
+plate.up = round((resp * 10) + 1000);
+setappdata(handles.RoboPhil,'plate',plate);
+rfDisp([],plate.up,plate.down);
 
 
 % --------------------------------------------------------------------
 function DownPositionMI_Callback(hObject, eventdata, handles)
-resp = str2double(inputdlg('Enter "Down" Position in uSecond Notation:', ...
-    'RoboPhil: Tip Control',[1,50]));
-if isempty(resp) || isnan(resp) || resp < 1000 || resp > 2000
+resp = str2double(inputdlg('Enter "Down" Position in Percent (min DOWN = 00.0):', ...
+    'RoboPhil: Tip Control',[1,70]));
+if isempty(resp) || isnan(resp) || resp < 0 || resp > 100
     warndlg('Invalid Down Position Entry','RoboPhil: Tip Control');
     return;
 end
-setappdata(handles.RoboPhil,'DispDownPos',resp);
-wait = getappdata(handles.RoboPhil,'DispMinWait');
-up = getappdata(handles.RoboPhil,'DispUpPos');
-% down = getappdata(hObject,'DispDownPos');
-down = resp;
-rfDisp(wait,up,down);
+plate = getappdata(handles.RoboPhil,'plate');
+plate.down = round((resp * 10) + 1000);
+setappdata(handles.RoboPhil,'plate',plate);
+rfDisp([],plate.up,plate.down);
 
 
 % --------------------------------------------------------------------
